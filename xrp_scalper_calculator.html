@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>XRPUSD Scalper Calculator</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#9ca3af;--white:#e6eef6}
+    html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:linear-gradient(180deg,#071023 0%, #061421 100%);color:var(--white)}
+    .wrap{max-width:820px;margin:28px auto;padding:22px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;box-shadow:0 6px 30px rgba(2,6,23,0.7)}
+    h1{margin:0 0 8px;font-size:20px}
+    p.lead{margin:0 0 18px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type="number"], select{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:var(--white);outline:none}
+    .full{grid-column:1 / -1}
+    .results{margin-top:18px;padding:14px;border-radius:10px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));}
+    .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed rgba(255,255,255,0.02)}
+    .row:last-child{border-bottom:0}
+    .muted{color:var(--muted);font-size:13px}
+    .big{font-weight:700;font-size:16px}
+    .btns{display:flex;gap:8px;margin-top:12px}
+    button{cursor:pointer;padding:10px 12px;border-radius:8px;border:0;background:var(--accent);color:#022; font-weight:700}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    footer{margin-top:14px;color:var(--muted);font-size:13px}
+    .hint{font-size:13px;color:var(--muted);margin-top:8px}
+    @media (max-width:640px){.grid{grid-template-columns:1fr}} 
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>XRPUSD Scalper — Simple Calculator</h1>
+    <p class="lead">Enter your Entry and Stop prices. The calculator uses your $ balance and risk per trade to compute lot size, TP (1:1.5), leverage and margin required.</p>
+
+    <div class="grid">
+      <div>
+        <label>Balance (USD)</label>
+        <input id="balance" type="number" step="0.01" value="10">
+      </div>
+
+      <div>
+        <label>Risk per trade (USD)</label>
+        <input id="risk" type="number" step="0.01" value="2">
+      </div>
+
+      <div>
+        <label>Entry price (USD)</label>
+        <input id="entry" type="number" step="0.0001" value="0.5">
+      </div>
+
+      <div>
+        <label>Stop price (USD)</label>
+        <input id="stop" type="number" step="0.0001" value="0.495">
+      </div>
+
+      <div>
+        <label>Risk → Reward ratio (1:x)</label>
+        <input id="rrr" type="number" step="0.1" value="1.5">
+      </div>
+
+      <div>
+        <label>Preferred max margin to use (USD)</label>
+        <input id="maxMargin" type="number" step="0.1" value="5">
+      </div>
+
+      <div class="full">
+        <label>Fees estimate (round-trip % of notional)</label>
+        <input id="feesPct" type="number" step="0.01" value="0.10">
+      </div>
+
+      <div class="full">
+        <button id="calc">Calculate</button>
+        <button id="reset" class="ghost">Reset</button>
+      </div>
+    </div>
+
+    <div class="results" id="results" style="display:none">
+      <div class="row"><div class="muted">Difference (Entry − Stop)</div><div id="d" class="big">—</div></div>
+      <div class="row"><div class="muted">Lot size (XRP)</div><div id="qty" class="big">—</div></div>
+      <div class="row"><div class="muted">Take Profit (TP)</div><div id="tp" class="big">—</div></div>
+      <div class="row"><div class="muted">Notional (Entry × qty)</div><div id="notional" class="big">—</div></div>
+      <div class="row"><div class="muted">Suggested Leverage (to keep margin ≤ max)</div><div id="leverage" class="big">—</div></div>
+      <div class="row"><div class="muted">Margin required at suggested leverage</div><div id="margin" class="big">—</div></div>
+      <div class="row"><div class="muted">Estimated round-trip fees</div><div id="fees" class="big">—</div></div>
+
+      <div class="hint">Tip: Use limit/post-only entries to reduce fees. Avoid using full balance as margin — keep buffer for funding/fees.</div>
+
+      <div class="btns">
+        <button id="copy">Copy order details</button>
+        <button id="download" class="ghost">Save as .txt</button>
+      </div>
+    </div>
+
+    <footer>Made for Inbu — quick XRP scalping calculator. (1 contract ≈ 1 XRP assumption)</footer>
+  </div>
+
+  <script>
+    function fmt(v,dec=4){return Number.isFinite(v)?Number(v).toFixed(dec):"—"}
+
+    document.getElementById('calc').addEventListener('click', ()=>{
+      const balance = parseFloat(document.getElementById('balance').value)||0
+      const risk = parseFloat(document.getElementById('risk').value)||0
+      const entry = parseFloat(document.getElementById('entry').value)
+      const stop = parseFloat(document.getElementById('stop').value)
+      const rrr = parseFloat(document.getElementById('rrr').value)||1.5
+      const maxMargin = parseFloat(document.getElementById('maxMargin').value)||5
+      const feesPct = parseFloat(document.getElementById('feesPct').value)||0.1
+
+      if(!entry || !stop || entry===stop){alert('Please enter valid Entry and Stop (they must differ).');return}
+
+      const d = Math.abs(entry - stop)
+      const qty = risk / d
+      const tp = (entry > stop) ? entry + rrr * d : entry - rrr * d
+      const notional = entry * qty
+
+      // suggested leverage to keep margin <= maxMargin
+      let suggestedLeverage = Math.ceil(notional / maxMargin)
+      if(suggestedLeverage < 1) suggestedLeverage = 1
+      // cap leverage to 100 (exchange max)
+      if(suggestedLeverage > 100) suggestedLeverage = 100
+
+      const margin = notional / suggestedLeverage
+      const fees = (feesPct/100) * notional
+
+      document.getElementById('d').textContent = fmt(d,6)
+      document.getElementById('qty').textContent = Math.max(0,Math.floor(qty)) + ' XRP'
+      document.getElementById('tp').textContent = fmt(tp,6)
+      document.getElementById('notional').textContent = '$' + fmt(notional,2)
+      document.getElementById('leverage').textContent = suggestedLeverage + '×'
+      document.getElementById('margin').textContent = '$' + fmt(margin,2)
+      document.getElementById('fees').textContent = '$' + fmt(fees,2) + ' (≈ ' + fmt(feesPct,2) + '%)'
+
+      document.getElementById('results').style.display = 'block'
+    })
+
+    document.getElementById('reset').addEventListener('click', ()=>{document.location.reload()})
+
+    document.getElementById('copy').addEventListener('click', ()=>{
+      const lines = []
+      lines.push('XRPUSD scalper order')
+      lines.push('Entry: ' + document.getElementById('entry').value)
+      lines.push('Stop: ' + document.getElementById('stop').value)
+      lines.push('Qty: ' + document.getElementById('qty').textContent)
+      lines.push('TP: ' + document.getElementById('tp').textContent)
+      lines.push('Leverage: ' + document.getElementById('leverage').textContent)
+      lines.push('Margin: ' + document.getElementById('margin').textContent)
+      const text = lines.join('\n')
+      navigator.clipboard.writeText(text).then(()=>alert('Order details copied'))
+    })
+
+    document.getElementById('download').addEventListener('click', ()=>{
+      const text = document.getElementById('results').innerText || 'No results'
+      const blob = new Blob([text],{type:'text/plain'})
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = 'xrp_order.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+    })
+  </script>
+</body>
+</html>
